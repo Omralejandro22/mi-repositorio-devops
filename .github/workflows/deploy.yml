@@ -1,0 +1,35 @@
+name: Deploy to AWS
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+        aws-region: us-east-1
+
+    - name: Build and Push to ECR
+      run: |
+        aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 176974877151.dkr.ecr.us-east-1.amazonaws.com
+        docker build -t mi-app-devops .
+        docker tag mi-app-devops:latest 176974877151.dkr.ecr.us-east-1.amazonaws.com/mi-app-devops:latest
+        docker push 176974877151.dkr.ecr.us-east-1.amazonaws.com/mi-app-devops:latest
+
+    - name: Deploy to EC2 via SSM
+      run: |
+        aws ssm send-command \
+          --instance-ids "i-0ea54e87f65a5ae13" \
+          --document-name "AWS-RunShellScript" \
+          --parameters 'commands=["aws ecr get-login-password --region us-east-1 | sudo docker login --username AWS --password-stdin 176974877151.dkr.ecr.us-east-1.amazonaws.com","sudo docker pull 176974877151.dkr.ecr.us-east-1.amazonaws.com/mi-app-devops:latest","sudo docker stop flask-app || true","sudo docker rm flask-app || true","sudo docker run -d --name flask-app -p 5000:5000 176974877151.dkr.ecr.us-east-1.amazonaws.com/mi-app-devops:latest"]' \
+          --region us-east-1
